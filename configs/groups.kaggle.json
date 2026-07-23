@@ -1,6 +1,4 @@
 [
- {"name": "music_western",  "roots": ["/kaggle/input/musdb18-hq/train"],          "floor": 0.92},
- {"name": "speech",         "roots": ["/kaggle/input/vctk-corpus/wav48_silence_trimmed"], "floor": 0.95},
- {"name": "general_audio",  "roots": ["/kaggle/input/fsd50k/dev_audio"],          "floor": 0.95},
- {"name": "indian_music",   "roots": ["/kaggle/input/sanidha/audio"],             "floor": 1.00}
+ {"name": "musdb18_hq",  "roots": ["/kaggle/input/musdb18-hq"],  "floor": 1.0},
+ {"name": "vctk_corpus", "roots": ["/kaggle/input/vctk-corpus"], "floor": 1.0}
 ]

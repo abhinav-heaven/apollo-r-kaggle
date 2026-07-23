@@ -12,18 +12,35 @@ Measured on the local real-audio corpus (mp3, above-cutoff RGR of the rolloff ba
 | western_cello | 0.891 |
 | **indian_carnatic** | **1.007** — baseline achieves nothing |
 
-## 0a. FIND THE REAL DATASET PATHS FIRST
+## 0a. GENERATE THE GROUPS CONFIG — do not hand-write paths
 
-Kaggle mounts each dataset at `/kaggle/input/<slug>/`, and the folder layout INSIDE
-varies per uploader. Do not trust the example paths -- discover them:
+Kaggle mounts each dataset at `/kaggle/input/<slug>/`, but the layout INSIDE is
+chosen by the uploader and the file tree is JS-rendered, so it cannot be read off
+the dataset page. Guessed sub-paths are how you get `0 usable / 0 found`.
+
+Do not guess — scan what is actually mounted:
 
 ```bash
-!find /kaggle/input -maxdepth 3 -type d | head -60
-!find /kaggle/input -name '*.wav' -o -name '*.flac' | head -5
+!cd /kaggle/working/Apollo && python discover_groups.py --root /kaggle/input \
+    --out /kaggle/working/groups.json
 ```
 
-Then edit `configs/groups.kaggle.json` to match. A wrong root shows as
-`0 usable / 0 found  PATH NOT FOUND`, which is unambiguous.
+It walks each mounted dataset, reports file counts / sample rates / durations,
+**refuses any all-lossy dataset** (Saraga, FMA — they cannot be ground truth), warns
+about sub-44.1 kHz sources, and emits a ready groups JSON whose roots are the
+DATASET ROOTS. `scan_files` recurses, so the internal layout never matters.
+
+Use `/kaggle/working/groups.json` as `--groups` everywhere below.
+
+### Datasets to attach
+
+| corpus | Kaggle | note |
+|---|---|---|
+| MUSDB18-HQ | `quanglvitlm/musdb18-hq` | 44.1 kHz WAV stems |
+| VCTK | `kynthesis/vctk-corpus` | 48 kHz — resampled automatically |
+| FSD50K | **not on Kaggle** | upload from Zenodo/HF as a private dataset |
+| Sanidha (Carnatic) | **not on Kaggle** | request access, then upload privately |
+| ~~Saraga~~ | — | **mp3, unusable as ground truth** |
 
 ## 0. Kaggle setup
 
@@ -50,7 +67,7 @@ hf_hub_download("JusperLee/Apollo", "pytorch_model.bin",
 
 ```bash
 cd /kaggle/working/Apollo && python train_dro.py \
-  --groups /kaggle/working/apollo-r/configs/groups.kaggle.json \
+  --groups /kaggle/working/groups.json \
   --pretrained pytorch_model.bin --smoke --smoke-steps 8 --batch 2 --workers 2
 ```
 
@@ -61,7 +78,7 @@ checkpoint is being corrupted from step 0.
 
 ```bash
 cd /kaggle/working/Apollo && python eval_per_group.py \
-  --groups /kaggle/working/apollo-r/configs/groups.kaggle.json \
+  --groups /kaggle/working/groups.json \
   --mode calibrate --codec mp3 --bitrates 24,64,128 \
   --max-files 40 --max-segs 4 --out /kaggle/working/floors.json
 ```
@@ -72,7 +89,7 @@ Paste the printed floors into your groups JSON.
 
 ```bash
 cd /kaggle/working/Apollo && python eval_per_group.py \
-  --groups /kaggle/working/apollo-r/configs/groups.kaggle.json \
+  --groups /kaggle/working/groups.json \
   --ckpt pytorch_model.bin --codec mp3 --bitrates 24,64,128 \
   --out /kaggle/working/baseline.json
 ```
@@ -84,7 +101,7 @@ fine-tune has to beat; without it you cannot claim an improvement.
 
 ```bash
 cd /kaggle/working/Apollo && torchrun --nproc_per_node=2 train_dro.py \
-  --groups /kaggle/working/apollo-r/configs/groups.kaggle.json \
+  --groups /kaggle/working/groups.json \
   --pretrained pytorch_model.bin \
   --loss rgr --batch 4 --workers 8 --seg 3.0 \
   --codecs mp3,aac,opus --vrex 1e-2 --doro-eps 0.05 --swad-start 0.6 \
@@ -97,7 +114,7 @@ Save `/kaggle/working/exp` as a Kaggle Dataset before the session ends, or it is
 
 ```bash
 cd /kaggle/working/Apollo && torchrun --nproc_per_node=2 train_dro.py \
-  --groups /kaggle/working/apollo-r/configs/groups.kaggle.json \
+  --groups /kaggle/working/groups.json \
   --resume /kaggle/working/exp/last.ckpt \
   --loss rgr --batch 4 --workers 8 --max-hours 10.5 --out /kaggle/working/exp
 ```
@@ -106,7 +123,7 @@ cd /kaggle/working/Apollo && torchrun --nproc_per_node=2 train_dro.py \
 
 ```bash
 cd /kaggle/working/Apollo && for C in mp3 aac opus; do python eval_per_group.py \
-  --groups /kaggle/working/apollo-r/configs/groups.kaggle.json \
+  --groups /kaggle/working/groups.json \
   --ckpt /kaggle/working/exp/swad.ckpt --codec $C \
   --bitrates 24,32,64,96,128,192 --out /kaggle/working/eval_$C.json; done
 ```
