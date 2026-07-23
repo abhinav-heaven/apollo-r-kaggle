@@ -12,6 +12,22 @@ Measured on the local real-audio corpus (mp3, above-cutoff RGR of the rolloff ba
 | western_cello | 0.891 |
 | **indian_carnatic** | **1.007** — baseline achieves nothing |
 
+## 0. Stage data FIRST, on a CPU-only notebook (zero GPU hours)
+
+FSD50K and Sanidha are not on Kaggle. Stage them in a notebook with
+**Accelerator = None** — the GPU quota is only consumed when an accelerator is
+enabled. See `docs/DATA_STAGING.md`. Short version:
+
+```bash
+!cd /kaggle/working/Apollo && python prepare_kaggle_dataset.py \
+    --repo Fhrozen/FSD50k --scratch /kaggle/tmp/dl \
+    --out /kaggle/working/fsd50k_flac --budget-gb 18
+```
+
+Download goes to 60 GiB scratch; output is transcoded to **FLAC (lossless, ~50% of
+WAV, verified bit-exact)** so ~34 GB fits the 20 GiB persist limit. Save Version, then
+attach the output to the GPU notebook.
+
 ## 0a. GENERATE THE GROUPS CONFIG — do not hand-write paths
 
 Kaggle mounts each dataset at `/kaggle/input/<slug>/`, but the layout INSIDE is
