@@ -45,6 +45,7 @@ from torch.utils.data import DataLoader, Dataset
 from look2hear.models.apollo import Apollo
 from look2hear.models.apollo_r import ApolloR
 
+
 # Import codec_sim by path: look2hear.datas.__init__ pulls in the HDF5/Lightning
 # datamodule, which this script does not use and which would force heavy deps
 # (h5py, pytorch_lightning) onto anyone running the trainer.
@@ -53,6 +54,14 @@ _cs_spec = __import__("importlib.util", fromlist=["util"]).spec_from_file_locati
                               "look2hear", "datas", "codec_sim.py"))
 codec_sim = __import__("importlib.util", fromlist=["util"]).module_from_spec(_cs_spec)
 _cs_spec.loader.exec_module(codec_sim)
+
+# same reason: look2hear.metrics.__init__ imports wrapper.py -> librosa
+_rs_spec = __import__("importlib.util", fromlist=["util"]).spec_from_file_location(
+    "restoration", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "look2hear", "metrics", "restoration.py"))
+restoration = __import__("importlib.util", fromlist=["util"]).module_from_spec(_rs_spec)
+_rs_spec.loader.exec_module(restoration)
+restoration_gain, regime_split_loss = restoration.restoration_gain, restoration.regime_split_loss
 BITRATES, CODECS, COND_DIM = codec_sim.BITRATES, codec_sim.CODECS, codec_sim.COND_DIM
 MEASURED_CUTOFF = codec_sim.MEASURED_CUTOFF
 codec_cutoff, codec_rates = codec_sim.codec_cutoff, codec_sim.codec_rates
@@ -594,6 +603,8 @@ def main():
     p.add_argument("--no-dro", action="store_true", help="ERM baseline for ablation")
     p.add_argument("--no-floors", action="store_true", help="raw max_g, for ablation")
     # --- V-REx / DORO / SWAD / multi-encoder ---
+    p.add_argument("--loss", choices=["rgr", "mrstft"], default="rgr",
+                   help="rgr = damage-relative (identity==1.0); mrstft = absolute")
     p.add_argument("--vrex", type=float, default=1e-2,
                    help="weight on Var_g(risk); 0 disables")
     p.add_argument("--doro-warmup", type=int, default=200,
@@ -710,7 +721,15 @@ def main():
 
             with autocast_ctx(use_amp):
                 est = model(deg, cond=cond)
-                per = mrstft_per_sample(est, clean)   # batched: (B,)
+                # Restoration Gain Ratio: error RELATIVE TO THE DAMAGE.
+                # identity == exactly 1.0, so any value < 1 is genuine restoration
+                # and the number means the same thing at every bitrate. A plain
+                # MR-STFT loss is dominated by the loud low band the codec never
+                # touched, so most of it measures content the model never changed.
+                if args.loss == "rgr":
+                    per = restoration_gain(est, clean, deg)
+                else:
+                    per = mrstft_per_sample(est, clean)
 
                 # --- composition order matters ---
                 # 1. DORO trims outliers FIRST, so leaked transcodes cannot drive
@@ -750,7 +769,8 @@ def main():
             if args.smoke and step >= args.smoke_steps:
                 if rank == 0:
                     drop = doro.dropped if doro is not None else 0
-                    print(f"[smoke] {step} steps OK | loss={float(loss):.4f}")
+                    print(f"[smoke] {step} steps OK | loss={float(loss):.4f} "
+                          f"({args.loss}; identity==1.0 for rgr)")
                     print(f"[smoke] group q      = {[round(x,3) for x in dro.q.tolist()]}")
                     print(f"[smoke] group L(ema) = {[round(x,3) for x in dro.L.tolist()]}")
                     print(f"[smoke] doro dropped = {drop}")

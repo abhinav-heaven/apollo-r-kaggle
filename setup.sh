@@ -6,6 +6,7 @@ UP="${1:-./Apollo}"
 [ -d "$UP" ] || git clone --depth 1 https://github.com/JusperLee/Apollo.git "$UP"
 cp src/models/apollo_r.py "$UP/look2hear/models/"
 cp src/datas/codec_sim.py "$UP/look2hear/datas/"
+cp src/metrics/restoration.py "$UP/look2hear/metrics/"
 cp train_dro.py eval_per_group.py "$UP/"
 # upstream bug fixes (see docs/): bitrate randomization was dead; roll() wrapped
 python3 - "$UP" << 'PY'
