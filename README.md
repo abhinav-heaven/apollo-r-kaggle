@@ -12,7 +12,7 @@ can only earn improvements; it cannot start by destroying a good checkpoint.
 ## Kaggle quick start
 
 ```bash
-!git clone https://github.com/USER/apollo-r-kaggle.git && cd apollo-r-kaggle && ./setup.sh
+!git clone https://github.com/abhinav-heaven/apollo-r-kaggle.git && cd apollo-r-kaggle && ./setup.sh
 ```
 
 Then (2 GPUs):
