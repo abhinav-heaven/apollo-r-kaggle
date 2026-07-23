@@ -12,6 +12,19 @@ Measured on the local real-audio corpus (mp3, above-cutoff RGR of the rolloff ba
 | western_cello | 0.891 |
 | **indian_carnatic** | **1.007** — baseline achieves nothing |
 
+## 0a. FIND THE REAL DATASET PATHS FIRST
+
+Kaggle mounts each dataset at `/kaggle/input/<slug>/`, and the folder layout INSIDE
+varies per uploader. Do not trust the example paths -- discover them:
+
+```bash
+!find /kaggle/input -maxdepth 3 -type d | head -60
+!find /kaggle/input -name '*.wav' -o -name '*.flac' | head -5
+```
+
+Then edit `configs/groups.kaggle.json` to match. A wrong root shows as
+`0 usable / 0 found  PATH NOT FOUND`, which is unambiguous.
+
 ## 0. Kaggle setup
 
 Accelerator → **GPU T4 ×2**. Attach datasets:

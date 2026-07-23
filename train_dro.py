@@ -107,8 +107,16 @@ def provenance_ok(path, thr_db=-55.0, sr=SR):
         y, s = torchaudio.load(path)
     except Exception:
         return False
-    if s != sr or y.shape[-1] < sr:
+    if y.shape[-1] < s:                      # under one second
         return False
+    if s != sr:
+        # RESAMPLE, don't reject. Rejecting on sample rate silently discarded
+        # 100% of VCTK (48 kHz) even when the paths were right -- the group just
+        # reported "0 files" with no reason given.
+        if s < sr:
+            return False                     # genuinely band-limited source
+        import torchaudio.functional as AF
+        y = AF.resample(y, s, sr)
     y = y.mean(0).double()
     n = 8192
     P = torch.zeros(n // 2 + 1, dtype=torch.float64)
@@ -210,11 +218,19 @@ class CodecDataset(Dataset):
     def _load_segment(self, path):
         import torchaudio
         info = torchaudio.info(path)
-        if info.num_frames <= self.seg:
+        sr_in = info.sample_rate
+        need = int(self.seg * sr_in / SR) + 1        # frames at the FILE's rate
+        if info.num_frames <= need:
             return None
-        off = random.randint(0, info.num_frames - self.seg - 1)
-        y, s = torchaudio.load(path, frame_offset=off, num_frames=self.seg)
+        off = random.randint(0, info.num_frames - need - 1)
+        y, s = torchaudio.load(path, frame_offset=off, num_frames=need)
         if s != SR:
+            if s < SR:
+                return None                          # band-limited source
+            import torchaudio.functional as AF
+            y = AF.resample(y, s, SR)                # e.g. VCTK 48k -> 44.1k
+        y = y[:, :self.seg]
+        if y.shape[-1] < self.seg:
             return None
         if y.shape[0] == 1:
             y = y.repeat(2, 1)
@@ -657,13 +673,40 @@ def main():
     groups = [GroupSpec(name=s["name"], roots=s["roots"],
                         floor=float(s.get("floor", 1.0))) for s in specs]
     for g in groups:
-        fs = scan_files(g.roots)
-        if not args.skip_provenance:
-            fs = [f for f in fs if provenance_ok(f)]
+        raw = scan_files(g.roots)
+        if args.skip_provenance:
+            fs, why = raw, ""
+        else:
+            fs = [f for f in raw if provenance_ok(f)]
+            why = f"  ({len(raw) - len(fs)} rejected by provenance)" if raw else ""
         g.files = fs
         if rank == 0:
-            print(f"[data] {g.name:22s} {len(fs):6d} files  floor={g.floor:.3f}")
-    assert any(g.files for g in groups), "no usable files after provenance filtering"
+            print(f"[data] {g.name:22s} {len(fs):6d} usable / {len(raw):6d} found"
+                  f"  floor={g.floor:.3f}{why}")
+            # Distinguish "wrong path" from "everything rejected" -- printing only
+            # the final count makes those two look identical, which is exactly how
+            # this failed the first time.
+            if not raw:
+                for r in g.roots:
+                    if not os.path.isdir(r):
+                        print(f"        PATH NOT FOUND: {r}")
+                        parent = os.path.dirname(r.rstrip("/")) or "/"
+                        if os.path.isdir(parent):
+                            sib = sorted(os.listdir(parent))[:12]
+                            print(f"        {parent} contains: {sib}")
+                    else:
+                        top = sorted(os.listdir(r))[:12]
+                        print(f"        dir exists but no audio under it; contains: {top}")
+    if not any(g.files for g in groups):
+        raise SystemExit(
+            "\nNo usable files in ANY group.\n"
+            "  * '0 found'    -> the roots in your --groups JSON are wrong. Kaggle mounts\n"
+            "                    datasets at /kaggle/input/<slug>/... ; run\n"
+            "                    `find /kaggle/input -maxdepth 3 -type d | head -50`\n"
+            "                    and fix the paths.\n"
+            "  * 'N found, 0 usable' -> the provenance filter rejected everything. Check\n"
+            "                    the corpus is genuinely lossless, or re-run with\n"
+            "                    --skip-provenance to confirm that is the cause.\n")
 
     ds = CodecDataset(groups, args.seg, args.samples_per_epoch,
                       codecs=[c.strip() for c in args.codecs.split(",") if c.strip()],
