@@ -1,0 +1,7 @@
+Apollo-R builds on Apollo by Kai Li (JusperLee) — https://github.com/JusperLee/Apollo
+Apollo is licensed CC BY-SA 4.0. `src/models/apollo_r.py` subclasses Apollo and is
+therefore Adapted Material; this repository is released under the SAME license
+(CC BY-SA 4.0) as required by ShareAlike. See LICENSE.
+
+Upstream source is not vendored here. `setup.sh` clones it from the original
+repository so attribution and provenance stay intact.

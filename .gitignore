@@ -1,0 +1,13 @@
+Apollo/
+*.ckpt
+*.bin
+*.wav
+*.mp3
+*.flac
+__pycache__/
+*.pyc
+.venv/
+venv*/
+kaggle.json
+*.env
+.secrets

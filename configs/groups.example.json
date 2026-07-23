@@ -1,0 +1,7 @@
+[
+ {"name": "music_western",  "roots": ["/kaggle/input/musdb18hq/train"],        "floor": 0.45},
+ {"name": "music_indian",   "roots": ["/kaggle/input/saraga/audio"],           "floor": 0.74},
+ {"name": "speech",         "roots": ["/kaggle/input/vctk/wav48"],             "floor": 0.50},
+ {"name": "general_audio",  "roots": ["/kaggle/input/fsd50k/dev_audio"],       "floor": 0.65},
+ {"name": "percussive",     "roots": ["/kaggle/input/fsd50k/percussion"],      "floor": 0.95}
+]
