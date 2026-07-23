@@ -55,6 +55,37 @@ def _spec(x, n):
 # --------------------------------------------------------------------------- #
 # 1. Restoration Gain Ratio  (metric AND loss)
 # --------------------------------------------------------------------------- #
+def restoration_gain_regime(est, clean, degraded, cutoff_hz, n=2048, eps=1e-12):
+    """RGR restricted to BELOW and ABOVE the cutoff, returned separately.
+
+    MEASURED FLAW IN THE GLOBAL VERSION: `restoration_gain` is energy-weighted, and
+    the above-cutoff band carries a tiny share of total energy. On real audio the
+    rolloff baseline scored a global RGR of 1.000 -- "no restoration" -- while its
+    per-regime numbers showed it clearly helping above the cutoff (0.70-0.94 vs the
+    codec's 1.0). The loud low band, which the codec barely damaged, swamps the
+    ratio. That is the SAME energy-weighting flaw that makes absolute error
+    useless here, so the global number must never be reported alone.
+
+    Returns (rgr_below, rgr_above); 1.0 == identity in each regime, NaN where the
+    reference carries no energy in that regime.
+    """
+    E, C, D = _spec(est, n), _spec(clean, n), _spec(degraded, n)
+    f = torch.fft.rfftfreq(n, 1 / SR).to(est.device)
+    total = C.abs().pow(2).sum()
+
+    def band(m):
+        if m.sum() == 0:
+            return float("nan")
+        cm = C[:, m].abs()
+        if float(cm.pow(2).sum()) < 1e-4 * float(total):
+            return float("nan")          # nothing there to restore
+        num = (E[:, m].abs() - cm).pow(2).sum() + 0.5 * (E[:, m] - C[:, m]).abs().pow(2).sum()
+        den = (D[:, m].abs() - cm).pow(2).sum() + 0.5 * (D[:, m] - C[:, m]).abs().pow(2).sum()
+        return float((num / (den + eps)).sqrt())
+
+    return band(f < cutoff_hz), band(f >= cutoff_hz)
+
+
 def restoration_gain(est, clean, degraded, wins=WINS, eps=1e-8, complex_w=0.5):
     """RGR per sample. 1.0 == identity, <1 == restored, >1 == damaged further.
 

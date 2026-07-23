@@ -45,6 +45,13 @@ CODECS, COND_DIM = codec_sim.CODECS, codec_sim.COND_DIM
 codec_cutoff, condition_vector = codec_sim.codec_cutoff, codec_sim.condition_vector
 multi_codec_simu = codec_sim.multi_codec_simu
 
+_rs = _ilu.spec_from_file_location(
+    "restoration", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "look2hear", "metrics", "restoration.py"))
+restoration = _ilu.module_from_spec(_rs); _rs.loader.exec_module(restoration)
+restoration_gain, energy_bias = restoration.restoration_gain, restoration.energy_bias
+restoration_gain_regime = restoration.restoration_gain_regime
+
 SR = 44100
 
 
@@ -157,7 +164,9 @@ def run(args):
         for br in brs:
             cut = codec_cutoff(args.codec, br)
             acc = {k: [] for k in ("deg_lo", "deg_hi", "base_lo", "base_hi",
-                                   "mdl_lo", "mdl_hi")}
+                                   "mdl_lo", "mdl_hi", "base_rgr", "mdl_rgr",
+                                   "mdl_bias", "base_rgr_lo", "base_rgr_hi",
+                                   "mdl_rgr_lo", "mdl_rgr_hi")}
             for fp in files:
                 for y in load_seg(fp, seg, args.max_segs):
                     y = y.to(device)
@@ -171,31 +180,44 @@ def run(args):
                     a, b = regime_err(d, y, cut); acc["deg_lo"].append(a); acc["deg_hi"].append(b)
                     bl = rolloff_baseline(d, cut)
                     a, b = regime_err(bl, y, cut); acc["base_lo"].append(a); acc["base_hi"].append(b)
+                    # RGR: identity == 1.0 exactly, and comparable across bitrates
+                    acc["base_rgr"].append(float(restoration_gain(
+                        bl.unsqueeze(0), y.unsqueeze(0), d.unsqueeze(0))))
+                    rl, rh = restoration_gain_regime(bl.unsqueeze(0), y.unsqueeze(0),
+                                                     d.unsqueeze(0), cut)
+                    acc["base_rgr_lo"].append(rl); acc["base_rgr_hi"].append(rh)
                     if model is not None:
                         cf = condition_vector(args.codec, br, SR).to(device).unsqueeze(0)
                         e = model(d.unsqueeze(0), cond=cf).squeeze(0)
                         a, b = regime_err(e, y, cut)
                         acc["mdl_lo"].append(a); acc["mdl_hi"].append(b)
+                        acc["mdl_rgr"].append(float(restoration_gain(
+                            e.unsqueeze(0), y.unsqueeze(0), d.unsqueeze(0))))
+                        acc["mdl_bias"].append(energy_bias(e.unsqueeze(0), y.unsqueeze(0), cut))
+                        rl, rh = restoration_gain_regime(e.unsqueeze(0), y.unsqueeze(0),
+                                                         d.unsqueeze(0), cut)
+                        acc["mdl_rgr_lo"].append(rl); acc["mdl_rgr_hi"].append(rh)
             if not acc["deg_lo"]:
                 continue
             m = {k: float(np.nanmedian(v)) if v else float("nan") for k, v in acc.items()}
             m.update(group=s["name"], bitrate=br, cutoff=cut, n=len(acc["deg_lo"]))
             rows.append(m)
-            print(f"{s['name']:20s} {br:4d}k cut={cut:5d} n={m['n']:4d} | "
-                  f"codec {m['deg_lo']:.3f}/{m['deg_hi']:.3f} | "
-                  f"rolloff {m['base_lo']:.3f}/{m['base_hi']:.3f} | "
-                  f"model {m['mdl_lo']:.3f}/{m['mdl_hi']:.3f}   (below/above cutoff)",
+            print(f"{s['name']:16s} {br:4d}k cut={cut:5d} n={m['n']:3d} | "
+                  f"rolloff RGR lo/hi {m['base_rgr_lo']:.3f}/{m['base_rgr_hi']:.3f} | "
+                  f"model RGR lo/hi {m['mdl_rgr_lo']:.3f}/{m['mdl_rgr_hi']:.3f} | "
+                  f"bias {m['mdl_bias']:+.1f}dB   (1.000 == no restoration)",
                   flush=True)
 
     json.dump(rows, open(args.out, "w"), indent=1)
 
     if args.mode == "calibrate":
-        print("\nFLOORS for train_dro.py --groups (best achievable per group,\n"
-              "taken as the rolloff baseline's ABOVE-cutoff error):")
+        print("\nFLOORS in RGR UNITS for train_dro.py --groups.\n"
+              "RGR: identity == 1.0 exactly, so a floor < 1.0 is the restoration the\n"
+              "rolloff baseline already achieves -- the bar the model must clear.")
         floors = {}
         for s in specs:
-            v = [r["base_hi"] for r in rows if r["group"] == s["name"]
-                 and not np.isnan(r["base_hi"])]
+            v = [r["base_rgr_hi"] for r in rows if r["group"] == s["name"]
+                 and not np.isnan(r["base_rgr_hi"])]
             floors[s["name"]] = round(float(np.median(v)), 3) if v else 1.0
         for k, v in floors.items():
             print(f'  {{"name": "{k}", "roots": [...], "floor": {v}}},')
